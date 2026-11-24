@@ -34,25 +34,36 @@ def month_bounds(y, m):
 def med(xs):
     return statistics.median(xs) if xs else None
 
+def summarize(c, n_listed, area_field):
+    prices = [r["ClosePrice"] for r in c if r.get("ClosePrice")]
+    doms = [r["DaysOnMarket"] for r in c if r.get("DaysOnMarket") is not None and r["DaysOnMarket"] >= 0]
+    ratios = [r["ClosePrice"] / r["ListPrice"] * 100 for r in c if r.get("ClosePrice") and r.get("ListPrice")]
+    pa = [(r["ClosePrice"], r[area_field]) for r in c if r.get("ClosePrice") and r.get(area_field)]
+    per = sum(p for p, _ in pa) / sum(a for _, a in pa) if pa else None
+    return {"closed": len(c), "price": med(prices), "dom": med(doms),
+            "newl": n_listed, "ratio": med(ratios), "per": per}
+
 def stats(tok, y, m):
     s, e = month_bounds(y, m)
+    sel = "PropertySubType,ClosePrice,ListPrice,DaysOnMarket,LivingArea,LotSizeAcres"
     closed = fetch(tok,
-        f"StandardStatus eq 'Closed' and PropertyType eq 'Residential' and CloseDate ge {s} and CloseDate le {e}",
-        "PropertySubType,ClosePrice,ListPrice,DaysOnMarket,LivingArea")
+        f"StandardStatus eq 'Closed' and PropertyType eq 'Residential' and CloseDate ge {s} and CloseDate le {e}", sel)
     listed = fetch(tok,
-        f"PropertyType eq 'Residential' and ListingContractDate ge {s} and ListingContractDate le {e}",
-        "PropertySubType")
+        f"PropertyType eq 'Residential' and ListingContractDate ge {s} and ListingContractDate le {e}", "PropertySubType")
+    land_closed = fetch(tok,
+        f"StandardStatus eq 'Closed' and PropertyType eq 'Land' and PropertySubType eq 'UnimprovedLand' and CloseDate ge {s} and CloseDate le {e}", sel)
+    land_listed = fetch(tok,
+        f"PropertyType eq 'Land' and PropertySubType eq 'UnimprovedLand' and ListingContractDate ge {s} and ListingContractDate le {e}", "PropertySubType")
     out = {}
     for key, match in (("sfh", lambda t: t == "SingleFamilyResidence"), ("condo", lambda t: t in CONDO)):
         c = [r for r in closed if match(r.get("PropertySubType"))]
         n = sum(1 for r in listed if match(r.get("PropertySubType")))
-        prices = [r["ClosePrice"] for r in c if r.get("ClosePrice")]
-        doms = [r["DaysOnMarket"] for r in c if r.get("DaysOnMarket") is not None and r["DaysOnMarket"] >= 0]
-        ratios = [r["ClosePrice"] / r["ListPrice"] * 100 for r in c if r.get("ClosePrice") and r.get("ListPrice")]
-        sf = [(r["ClosePrice"], r["LivingArea"]) for r in c if r.get("ClosePrice") and r.get("LivingArea")]
-        ppsf = sum(p for p, _ in sf) / sum(a for _, a in sf) if sf else None
-        out[key] = {"closed": len(c), "price": med(prices), "dom": med(doms),
-                    "newl": n, "ratio": med(ratios), "ppsf": ppsf}
+        d = summarize(c, n, "LivingArea")
+        d["ppsf"] = d.pop("per")
+        out[key] = d
+    d = summarize(land_closed, len(land_listed), "LotSizeAcres")
+    d["ppacre"] = d.pop("per")
+    out["land"] = d
     return out
 
 def main():
@@ -66,11 +77,12 @@ def main():
     res = [stats(tok, *p) for p in periods]
     data = {
         "area": AREA,
+        "updated": today.isoformat(),
         "periods": [dt.date(a, b, 1).strftime("%B %Y") for a, b in periods],
-        "asOf": f"Source: {AREA}. Updated {today:%b %d, %Y}. Closed sales by close date; new listings by listing contract date.",
+        "asOf": f"Source: {AREA}. Closed sales by close date; new listings by listing contract date.",
     }
-    for key in ("sfh", "condo"):
-        data[key] = {k: [r[key][k] for r in res] for k in ("closed", "price", "dom", "newl", "ratio", "ppsf")}
+    for key, last in (("sfh", "ppsf"), ("condo", "ppsf"), ("land", "ppacre")):
+        data[key] = {k: [r[key][k] for r in res] for k in ("closed", "price", "dom", "newl", "ratio", last)}
     with open("data.json", "w") as f:
         json.dump(data, f, indent=2)
     print("Wrote data.json for", data["periods"][0])

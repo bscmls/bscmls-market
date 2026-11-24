@@ -12,12 +12,14 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
   body { padding: 12px; }
-  h1 { text-align: center; font-size: 1.6rem; margin: 4px 0 14px; font-weight: 600; }
-  .bar { display: flex; justify-content: space-between; align-items: flex-end; gap: 8px; }
-  .tabs { display: flex; gap: 4px; }
+  h1 { text-align: center; font-size: 1.6rem; margin: 4px 0 4px; font-weight: 600; }
+  .updated { text-align: center; color: var(--muted); font-size: .85rem; margin: 0 0 12px; }
+  .bar { display: flex; justify-content: space-between; align-items: flex-end; gap: 8px; flex-wrap: wrap; }
+  .tabs { display: flex; gap: 4px; flex-wrap: wrap; }
   .tab { border: 1px solid transparent; border-bottom: none; background: none; color: var(--link); padding: 9px 16px; font-size: 1rem; cursor: pointer; border-radius: 4px 4px 0 0; margin-bottom: -1px; }
   .tab[aria-selected="true"] { color: var(--muted); background: var(--bg); border-color: var(--border); }
-  .export { background: var(--btn); color: #fff; border: 0; border-radius: 4px; padding: 8px 14px; font-size: .95rem; cursor: pointer; margin-bottom: 6px; }
+  .pdfbtn { background: var(--btn); color: #fff; border: 0; border-radius: 4px; padding: 8px 18px; font-size: .95rem; cursor: pointer; margin-bottom: 6px; }
+  .pdfbtn:disabled { opacity: .6; cursor: wait; }
   .wrap { overflow-x: auto; border: 1px solid var(--border); }
   table { width: 100%; border-collapse: collapse; min-width: 520px; }
   th, td { padding: 14px 12px; text-align: left; border-left: 1px solid var(--border); }
@@ -31,43 +33,49 @@
   .legend { background: var(--band); text-align: center; padding: 12px; font-size: .92rem; border-top: 1px solid var(--border); }
   .legend span { margin: 0 10px; white-space: nowrap; }
   .src { text-align: center; color: var(--muted); font-size: .75rem; margin-top: 8px; }
+  /* off-screen sheet used only to make the PDF */
+  #sheet { position: absolute; left: -10000px; top: 0; width: 1000px; background: #fff; padding: 20px 24px; }
+  #sheet h2 { font-size: 1.15rem; margin: 18px 0 6px; font-weight: 600; }
+  #sheet table { min-width: 0; border: 1px solid var(--border); }
+  #sheet th, #sheet td { padding: 9px 12px; }
 </style>
 </head>
 <body>
 <h1 id="title">Market Overview</h1>
+<p class="updated" id="updated"></p>
 <div class="bar">
-  <div class="tabs" role="tablist">
-    <button class="tab" role="tab" data-k="sfh" aria-selected="true">Single Family Homes</button>
-    <button class="tab" role="tab" data-k="condo" aria-selected="false">Condo / Townhomes</button>
-  </div>
-  <button class="export" id="export">&#8681; Export Table</button>
+  <div class="tabs" role="tablist" id="tabs"></div>
+  <button class="pdfbtn" id="pdf">&#8681; PDF</button>
 </div>
-<div class="wrap"><table>
-  <thead><tr><th></th><th id="h0"></th><th id="h1"></th><th id="h2"></th></tr></thead>
-  <tbody id="rows"></tbody>
-</table>
-<div class="legend">The change from the previous <b>Month</b>:
-  <span><b class="up">&#9650;</b> Increased</span>
-  <span><b class="down">&#9660;</b> Decreased</span>
-  <span><b class="flat">&#8596;</b> No Change</span>
-</div></div>
+<div class="wrap">
+  <table><thead id="head"></thead><tbody id="rows"></tbody></table>
+  <div class="legend">The change from the previous <b>Month</b>:
+    <span><b class="up">&#9650;</b> Increased</span>
+    <span><b class="down">&#9660;</b> Decreased</span>
+    <span><b class="flat">&#8596;</b> No Change</span>
+  </div>
+</div>
 <div class="src" id="src"></div>
+<div id="sheet"></div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
-/* ---- DATA: edit/replace this block each month (or load it from your feed) ----
-   Order in each array: [current month, previous month, same month last year].
-   null = not available yet (shows an em dash). */
+/* Data is loaded from data.json (refreshed monthly by the GitHub Action). */
 var DATA = null;
-
-var METRICS = [
+var TABS = [["sfh", "Single Family Homes"], ["condo", "Condo / Townhomes"], ["land", "Vacant Land"]];
+var COMMON = [
   ["closed", "Closed Sales", "int"],
   ["price",  "Median Sale Price", "usd"],
   ["dom",    "Median Days on Market", "int"],
   ["newl",   "New Listings", "int"],
-  ["ratio",  "Sale to List Price Ratio", "pct"],
-  ["ppsf",   "Average Sale Price per Square Foot", "usd"]
+  ["ratio",  "Sale to List Price Ratio", "pct"]
 ];
-
+function metricsFor(key) {
+  return COMMON.concat(key === "land"
+    ? [["ppacre", "Average Sale Price per Acre", "usd"]]
+    : [["ppsf", "Average Sale Price per Square Foot", "usd"]]);
+}
 function fmt(v, t) {
   if (v === null || v === undefined) return "\u2014";
   if (t === "usd") return "$" + Math.round(v).toLocaleString("en-US");
@@ -76,40 +84,79 @@ function fmt(v, t) {
 }
 function ind(cur, prev, t) {
   if (cur == null || prev == null) return "";
-  var a = Number(fmt(cur, t).replace(/[^0-9.]/g, "")), b = Number(fmt(prev, t).replace(/[^0-9.]/g, ""));
+  var a = Math.round(cur), b = Math.round(prev);
   if (a > b) return '<span class="ind up">&#9650;</span>';
   if (a < b) return '<span class="ind down">&#9660;</span>';
   return '<span class="ind flat">&#8596;</span>';
 }
-
-var current = "sfh";
-function render() {
-  var d = DATA[current];
-  document.getElementById("title").textContent = "Market Overview of " + DATA.area;
-  ["h0", "h1", "h2"].forEach(function (id, i) { document.getElementById(id).textContent = DATA.periods[i]; });
-  var html = "";
-  METRICS.forEach(function (m) {
-    var v = d[m[0]], t = m[2];
+function headHTML() {
+  return "<tr><th></th>" + DATA.periods.map(function (p) { return "<th>" + p + "</th>"; }).join("") + "</tr>";
+}
+function bodyHTML(key) {
+  var d = DATA[key], html = "";
+  metricsFor(key).forEach(function (m) {
+    var v = d[m[0]] || [null, null, null], t = m[2];
     html += "<tr><td>" + m[1] + '</td><td class="cur">' + fmt(v[0], t) + ind(v[0], v[1], t) +
             "</td><td>" + fmt(v[1], t) + "</td><td>" + fmt(v[2], t) + "</td></tr>";
   });
-  document.getElementById("rows").innerHTML = html;
-  document.getElementById("src").textContent = DATA.asOf;
-  document.querySelectorAll(".tab").forEach(function (b) { b.setAttribute("aria-selected", b.dataset.k === current); });
+  return html;
 }
-document.querySelectorAll(".tab").forEach(function (b) {
-  b.addEventListener("click", function () { current = b.dataset.k; render(); });
+function prettyDate(iso) {
+  if (!iso) return "";
+  var p = iso.split("-"), names = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  return names[+p[1] - 1] + " " + (+p[2]) + ", " + p[0];
+}
+var current = "sfh";
+function render() {
+  document.getElementById("title").textContent = "Market Overview of " + DATA.area;
+  document.getElementById("updated").textContent = DATA.updated ? "Data updated " + prettyDate(DATA.updated) : "";
+  document.getElementById("tabs").innerHTML = TABS.map(function (t) {
+    return '<button class="tab" role="tab" data-k="' + t[0] + '" aria-selected="' + (t[0] === current) + '">' + t[1] + "</button>";
+  }).join("");
+  document.querySelectorAll(".tab").forEach(function (b) {
+    b.addEventListener("click", function () { current = b.dataset.k; render(); });
+  });
+  document.getElementById("head").innerHTML = headHTML();
+  document.getElementById("rows").innerHTML = bodyHTML(current);
+  document.getElementById("src").textContent = DATA.asOf;
+}
+
+/* PDF: builds a one-page sheet with all tables stacked, then snapshots it. */
+function buildSheet() {
+  var h = '<h1 style="text-align:center;font-size:1.6rem;margin:0 0 4px;font-weight:600">Market Overview of ' + DATA.area + "</h1>";
+  h += '<p class="updated">' + (DATA.updated ? "Data updated " + prettyDate(DATA.updated) : "") + "</p>";
+  TABS.forEach(function (t) {
+    h += "<h2>" + t[1] + "</h2><table><thead>" + headHTML() + "</thead><tbody>" + bodyHTML(t[0]) + "</tbody></table>";
+  });
+  h += '<div class="legend" style="margin-top:12px;border:1px solid var(--border)">The change from the previous <b>Month</b>: ' +
+       '<span><b class="up">&#9650;</b> Increased</span><span><b class="down">&#9660;</b> Decreased</span>' +
+       '<span><b class="flat">&#8596;</b> No Change</span></div>';
+  h += '<div class="src">' + DATA.asOf + "</div>";
+  document.getElementById("sheet").innerHTML = h;
+  return document.getElementById("sheet");
+}
+document.getElementById("pdf").addEventListener("click", function () {
+  var btn = this, label = btn.innerHTML;
+  btn.disabled = true; btn.textContent = "Creating PDF\u2026";
+  var sheet = buildSheet();
+  html2canvas(sheet, { scale: 2, backgroundColor: "#ffffff" }).then(function (canvas) {
+    var pdf = new window.jspdf.jsPDF({ unit: "pt", format: "letter", orientation: "portrait" });
+    var pw = pdf.internal.pageSize.getWidth(), ph = pdf.internal.pageSize.getHeight(), m = 28;
+    var s = Math.min((pw - 2 * m) / canvas.width, (ph - 2 * m) / canvas.height);
+    var w = canvas.width * s, hgt = canvas.height * s;
+    pdf.addImage(canvas.toDataURL("image/png"), "PNG", (pw - w) / 2, m, w, hgt);
+    pdf.save("BSCMLS-Market-Overview-" + (DATA.updated || "latest") + ".pdf");
+  }).catch(function () {
+    alert("Sorry, the PDF could not be created.");
+  }).then(function () {
+    document.getElementById("sheet").innerHTML = "";
+    btn.disabled = false; btn.innerHTML = label;
+  });
 });
-document.getElementById("export").addEventListener("click", function () {
-  var d = DATA[current], rows = [["Metric"].concat(DATA.periods)];
-  METRICS.forEach(function (m) { rows.push([m[1]].concat(d[m[0]].map(function (v) { return v == null ? "" : v; }))); });
-  var csv = rows.map(function (r) { return r.map(function (c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(","); }).join("\n");
-  var a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-  a.download = "market-overview-" + current + ".csv";
-  document.body.appendChild(a); a.click(); a.remove();
-});
-fetch("data.json?v=" + Date.now()).then(function (r) { return r.json(); }).then(function (d) { DATA = d; render(); }).catch(function () { document.getElementById("src").textContent = "Data unavailable."; });
+
+fetch("data.json?v=" + Date.now()).then(function (r) { return r.json(); }).then(function (d) {
+  DATA = d; render();
+}).catch(function () { document.getElementById("src").textContent = "Data unavailable."; });
 </script>
 </body>
 </html>
