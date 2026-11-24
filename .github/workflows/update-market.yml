@@ -1,0 +1,25 @@
+name: Update market data
+on:
+  schedule:
+    - cron: "0 14 5 * *"
+  workflow_dispatch: {}
+permissions:
+  contents: write
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install requests
+      - run: python update_market.py
+        env:
+          TRESTLE_CLIENT_ID: ${{ secrets.TRESTLE_CLIENT_ID }}
+          TRESTLE_CLIENT_SECRET: ${{ secrets.TRESTLE_CLIENT_SECRET }}
+      - name: Commit if changed
+        run: |
+          git config user.name "market-bot"
+          git config user.email "market-bot@users.noreply.github.com"
+          git add data.json
+          git diff --staged --quiet || (git commit -m "Update market data" && git push)
