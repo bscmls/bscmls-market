@@ -21,11 +21,11 @@
   .pdfbtn { background: var(--btn); color: #fff; border: 0; border-radius: 4px; padding: 8px 18px; font-size: .95rem; cursor: pointer; margin-bottom: 6px; }
   .pdfbtn:disabled { opacity: .6; cursor: wait; }
   .wrap { overflow-x: auto; border: 1px solid var(--border); }
-  table { width: 100%; border-collapse: collapse; min-width: 520px; }
+  table { width: 100%; border-collapse: collapse; min-width: 640px; table-layout: fixed; }
   th, td { padding: 14px 12px; text-align: left; border-left: 1px solid var(--border); }
   th:first-child, td:first-child { border-left: 0; }
-  th { font-weight: 700; border-bottom: 2px solid var(--border); }
-  td:first-child { color: var(--muted); }
+  th { font-weight: 700; border-bottom: 2px solid var(--border); white-space: nowrap; }
+  td:first-child { color: #000000; }
   tbody tr:nth-child(odd) { background: var(--band); }
   td.cur { font-weight: 700; white-space: nowrap; }
   .ind { float: right; margin-left: 14px; font-size: .8rem; }
@@ -48,7 +48,7 @@
   <button class="pdfbtn" id="pdf">&#8681; PDF</button>
 </div>
 <div class="wrap">
-  <table><thead id="head"></thead><tbody id="rows"></tbody></table>
+  <table><colgroup><col style="width:31%"><col style="width:23%"><col style="width:23%"><col style="width:23%"></colgroup><thead id="head"></thead><tbody id="rows"></tbody></table>
   <div class="legend">The change from the previous <b>Month</b>:
     <span><b class="up">&#9650;</b> Increased</span>
     <span><b class="down">&#9660;</b> Decreased</span>
@@ -106,6 +106,7 @@ function prettyDate(iso) {
   var p = iso.split("-"), names = ["January","February","March","April","May","June","July","August","September","October","November","December"];
   return names[+p[1] - 1] + " " + (+p[2]) + ", " + p[0];
 }
+var COLS = '<colgroup><col style="width:31%"><col style="width:23%"><col style="width:23%"><col style="width:23%"></colgroup>';
 var current = "sfh";
 function render() {
   document.getElementById("title").textContent = "Market Overview of " + DATA.area;
@@ -126,7 +127,7 @@ function buildSheet() {
   var h = '<h1 style="text-align:center;font-size:1.6rem;margin:0 0 4px;font-weight:600">Market Overview of ' + DATA.area + "</h1>";
   h += '<p class="updated">' + (DATA.updated ? "Data updated " + prettyDate(DATA.updated) : "") + "</p>";
   TABS.forEach(function (t) {
-    h += "<h2>" + t[1] + "</h2><table><thead>" + headHTML() + "</thead><tbody>" + bodyHTML(t[0]) + "</tbody></table>";
+    h += "<h2>" + t[1] + "</h2><table>" + COLS + "<thead>" + headHTML() + "</thead><tbody>" + bodyHTML(t[0]) + "</tbody></table>";
   });
   h += '<div class="legend" style="margin-top:12px;border:1px solid var(--border)">The change from the previous <b>Month</b>: ' +
        '<span><b class="up">&#9650;</b> Increased</span><span><b class="down">&#9660;</b> Decreased</span>' +
