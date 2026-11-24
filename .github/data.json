@@ -1,0 +1,9 @@
+{
+  "area": "Big Sky Country MLS",
+  "updated": "2026-11-24",
+  "periods": ["October 2026", "September 2026", "October 2025"],
+  "asOf": "Source: Big Sky Country MLS. Closed sales by close date; new listings by listing contract date.",
+  "sfh":   { "closed": [225, 231, 250], "price": [601000, 620000, 597750], "dom": [36, 29, 45],   "newl": [254, 320, 275], "ratio": [null, null, null], "ppsf": [null, null, null] },
+  "condo": { "closed": [65, 74, 63],    "price": [469900, 525000, 582000], "dom": [33, 53.5, 60], "newl": [62, 98, 78],    "ratio": [null, null, null], "ppsf": [null, null, null] },
+  "land":  { "closed": [55, 76, 47],    "price": [280000, 250000, 200000], "dom": [70, 90, 77],   "newl": [114, 112, 107], "ratio": [null, null, null], "ppacre": [null, null, null] }
+}
