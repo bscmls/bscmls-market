@@ -190,12 +190,18 @@ function filterSummary() {
   return "Property Type: " + typeLabel(sel.type) + "  |  County: " + (sel.county < 0 ? "All service-area counties" : DATA.counties[sel.county]) +
          "  |  Area: " + (sel.area < 0 ? "All areas" : DATA.areas[sel.area]);
 }
+function srcText() {
+  var scope;
+  if (sel.county >= 0) scope = DATA.counties[sel.county] + " County" + (sel.area >= 0 ? ", " + DATA.areas[sel.area] : "");
+  else scope = sel.area >= 0 ? DATA.areas[sel.area] + " (BSCMLS service area)" : "the 11-county BSCMLS service area";
+  return "Source: Big Sky Country MLS. Includes Montana listings in " + scope + ". Closed sales by close date; new listings by listing contract date.";
+}
 function render() {
   document.getElementById("updated").textContent = "Data updated " + prettyDate(DATA.updated);
   document.getElementById("sample").hidden = !DATA.sample;
   document.getElementById("head").innerHTML = headHTML();
   document.getElementById("rows").innerHTML = bodyHTML();
-  document.getElementById("src").textContent = "Source: Big Sky Country MLS. Montana listings in the 11 BSCMLS service-area counties. Closed sales by close date; new listings by listing contract date.";
+  document.getElementById("src").textContent = srcText();
 }
 document.getElementById("selType").addEventListener("change", function () { sel.type = this.value; render(); });
 document.getElementById("selCounty").addEventListener("change", function () { sel.county = +this.value; fillAreas(); render(); });
