@@ -27,10 +27,11 @@
   table { width:100%; border-collapse:collapse; min-width:640px; table-layout:fixed; }
   th, td { padding:14px 12px; text-align:left; border-left:1px solid var(--border); }
   th:first-child, td:first-child { border-left:0; }
-  th { font-weight:700; border-bottom:2px solid var(--border); white-space:nowrap; }
+  th { font-weight:600; background:#1d2b50; color:#fff; border-bottom:2px solid #1d2b50; white-space:nowrap; }
+  th, thead th { border-left-color:rgba(255,255,255,.18); }
   td:first-child { color:#000; }
   tbody tr:nth-child(odd) { background:var(--band); }
-  td.cur { font-weight:700; white-space:nowrap; }
+  td.cur { font-weight:700; white-space:nowrap; background:rgba(29,43,80,.08); }
   .ind { float:right; margin-left:14px; font-size:.8rem; }
   .up { color:var(--up); } .down { color:var(--down); } .flat { color:var(--muted); }
   .legend { background:var(--band); text-align:center; padding:12px; font-size:.92rem; border-top:1px solid var(--border); }
@@ -131,7 +132,7 @@ var PER_ACRE = { land_struct:1, vacant:1, c_land:1, ALL_LAND:1 };
 var MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 var MSHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 var METRICS = [["closed","Closed Sales","int"],["price","Median Sale Price","usd"],["dom","Median Days on Market","int"],
-               ["newl","New Listings","int"],["ratio","Sale to List Price Ratio","pct"],["per","","usd"]];
+               ["newl","New Listings","int"],["ratio","Avg % of Final List Price Received","pct"],["per","","usd"]];
 var sel = { type: "sfh", county: -1, area: -1, metric: "closed" };
 var LINE = "#1d2b50";
 
@@ -150,7 +151,7 @@ function median(a) {
 function periodLabel(iso) { var p = iso.split("-"); return MONTHS[+p[1] - 1] + " " + p[0]; }
 function prettyDate(iso) { var p = iso.split("-"); return MONTHS[+p[1] - 1] + " " + (+p[2]) + ", " + p[0]; }
 function metricObj(k) { return METRICS.filter(function (m) { return m[0] === k; })[0]; }
-function metricLabel(m) { return m[1] || (PER_ACRE[sel.type] ? "Average Sale Price per Acre" : "Average Sale Price per Square Foot"); }
+function metricLabel(m) { return m[1] || (PER_ACRE[sel.type] ? "Median Sold $/Acre" : "Median Sold $/SqFt"); }
 
 /* Series for every period (oldest first, index N-1 = current month) */
 function compute() {
@@ -162,28 +163,28 @@ function compute() {
   DATA.closed.forEach(function (r) { if (ok(r)) by[r[0]].push(r); });
   DATA.listed.forEach(function (r) { if (ok(r)) nl[r[0]] += r[4]; });
   for (p = 0; p < N; p++) {
-    var prices = [], doms = [], ratios = [], sumP = 0, sumA = 0;
+    var prices = [], doms = [], ratios = [], pers = [];
     by[p].forEach(function (r) {
       if (r[4]) prices.push(r[4]);
       if (r[6] != null && r[6] >= 0) doms.push(r[6]);
       if (r[4] && r[5]) ratios.push(r[4] / r[5] * 100);
       var a = acre ? r[8] : r[7];
-      if (r[4] && a > 0) { sumP += r[4]; sumA += a; }
+      if (r[4] && a > 0) pers.push(r[4] / a);
     });
     out.closed.push(by[p].length); out.price.push(median(prices)); out.dom.push(median(doms));
-    out.newl.push(nl[p]); out.ratio.push(median(ratios)); out.per.push(sumA > 0 ? sumP / sumA : null);
+    out.newl.push(nl[p]); out.ratio.push(ratios.length ? ratios.reduce(function (x, y) { return x + y; }, 0) / ratios.length : null); out.per.push(median(pers));
   }
   return out;
 }
 function fmt(v, t) {
   if (v === null || v === undefined) return "—";
   if (t === "usd") return "$" + Math.round(v).toLocaleString("en-US");
-  if (t === "pct") return Math.round(v) + "%";
+  if (t === "pct") return v.toFixed(1) + "%";
   return Math.round(v).toLocaleString("en-US");
 }
-function ind(cur, prev) {
+function ind(cur, prev, t) {
   if (cur == null || prev == null) return "";
-  var a = Math.round(cur), b = Math.round(prev);
+  var f = t === "pct" ? 10 : 1, a = Math.round(cur * f), b = Math.round(prev * f);
   if (a > b) return '<span class="ind up">&#9650;</span>';
   if (a < b) return '<span class="ind down">&#9660;</span>';
   return '<span class="ind flat">&#8596;</span>';
@@ -194,7 +195,7 @@ function bodyHTML(d) {
   var ix = tableIdx();
   return METRICS.map(function (m) {
     var v = ix.map(function (i) { return d[m[0]][i]; }), t = m[2];
-    return "<tr><td>" + metricLabel(m) + '</td><td class="cur">' + fmt(v[0], t) + ind(v[0], v[1]) + "</td><td>" + fmt(v[1], t) + "</td><td>" + fmt(v[2], t) + "</td></tr>";
+    return "<tr><td>" + metricLabel(m) + '</td><td class="cur">' + fmt(v[0], t) + ind(v[0], v[1], t) + "</td><td>" + fmt(v[1], t) + "</td><td>" + fmt(v[2], t) + "</td></tr>";
   }).join("");
 }
 
@@ -206,7 +207,7 @@ function niceStep(range, ticks) {
 }
 function axisLabel(v, t) {
   if (t === "usd") { if (Math.abs(v) >= 1e6) return "$" + +(v / 1e6).toFixed(2) + "M"; if (Math.abs(v) >= 1e4) return "$" + Math.round(v / 1e3) + "K"; return "$" + Math.round(v).toLocaleString("en-US"); }
-  if (t === "pct") return Math.round(v) + "%";
+  if (t === "pct") return +v.toFixed(1) + "%";
   return Math.round(v).toLocaleString("en-US");
 }
 /* returns {html, g} where g holds scale info for the tooltip */
@@ -245,10 +246,20 @@ function chartSVG(W, H, d, interactive, key) {
     if (vals[i] == null) { pen = false; continue; }
     path += (pen ? "L" : "M") + X(i).toFixed(1) + "," + Y(vals[i]).toFixed(1); pen = true;
   }
+  var seg = [], cur = [];
+  for (i = 0; i < N; i++) { if (vals[i] == null) { if (cur.length) seg.push(cur); cur = []; } else cur.push(i); }
+  if (cur.length) seg.push(cur);
+  seg.forEach(function (q) {
+    if (q.length < 2) return;
+    var a = "M" + X(q[0]).toFixed(1) + "," + (H - B);
+    q.forEach(function (k) { a += "L" + X(k).toFixed(1) + "," + Y(vals[k]).toFixed(1); });
+    s += '<path d="' + a + "L" + X(q[q.length - 1]).toFixed(1) + "," + (H - B) + 'Z" fill="#1d2b50" fill-opacity="0.07"/>';
+  });
   s += '<path d="' + path + '" fill="none" stroke="' + LINE + '" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>';
   for (i = 0; i < N; i++) if (vals[i] != null && (i === N - 1 || !interactive || N <= 40)) {
     s += '<circle cx="' + X(i).toFixed(1) + '" cy="' + Y(vals[i]).toFixed(1) + '" r="' + (i === N - 1 ? 4 : 2.4) + '" fill="' + (i === N - 1 ? LINE : "#ffffff") + '" stroke="' + LINE + '" stroke-width="1.6"/>';
   }
+  if (!small && vals[N - 1] != null) s += '<text x="' + X(N - 1).toFixed(1) + '" y="' + (Y(vals[N - 1]) - 10).toFixed(1) + '" text-anchor="end" font-size="' + (fs + 1) + '" font-weight="700" fill="' + LINE + '">' + fmt(vals[N - 1], t) + "</text>";
   if (interactive) s += '<line id="hov" x1="0" x2="0" y1="' + T + '" y2="' + (H - B) + '" stroke="#999999" stroke-dasharray="3 3" visibility="hidden"/><circle id="hovdot" r="5.5" fill="' + LINE + '" stroke="#ffffff" stroke-width="2" visibility="hidden"/>';
   s += "</svg>";
   return { html: s, g: { W: W, L: L, R: R, X: X, Y: Y, vals: vals, t: t } };
@@ -329,9 +340,9 @@ function summaryHTML(d) {
   var nl = g("newl", c);
   v = chg(nl, g("newl", pm));
   var s5 = "<b>" + fmt(nl, "int") + "</b> new " + (nl === 1 ? "listing was" : "listings were") + " added" + (v ? ", " + v + " from the previous month" : "");
-  if (g("ratio", c) != null) s5 += ", and properties that sold went for a median of <b>" + fmt(g("ratio", c), "pct") + "</b> of their list price";
+  if (g("ratio", c) != null) s5 += ", and sold properties received an average of <b>" + fmt(g("ratio", c), "pct") + "</b> of their final list price";
   out.push(s5 + ".");
-  if (g("per", c) != null) out.push("The average sale price was <b>" + fmt(g("per", c), "usd") + "</b> per " + (PER_ACRE[sel.type] ? "acre" : "square foot") + ".");
+  if (g("per", c) != null) out.push("The median sold price was <b>" + fmt(g("per", c), "usd") + "</b> per " + (PER_ACRE[sel.type] ? "acre" : "square foot") + ".");
   var ps = d.price.filter(function (x) { return x != null; });
   if (ps.length > 11) out.push("Over the past three years, the median sale price has ranged from " + fmt(Math.min.apply(null, ps), "usd") + " to " + fmt(Math.max.apply(null, ps), "usd") + ".");
   var html = "<p>" + out.join(" ") + "</p>";
