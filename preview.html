@@ -55,13 +55,16 @@
     .legend span { margin:0 5px; }
     .src { font-size:.68rem; }
     .chartsec { padding:8px 6px 2px; }
-    .ctitle { font-size:.9rem; min-width:0; flex:none; width:100%; }
+    .ctitle { font-size:.9rem; }
+    .cval { font-size:.85rem; }
     .chartbar .f { width:100%; }
     .chartbar .f select { max-width:none; width:100%; }
   }
   .chartsec { margin-top:18px; border:1px solid var(--border); padding:12px 12px 6px; }
   .chartbar { display:flex; justify-content:space-between; align-items:flex-end; gap:10px; flex-wrap:wrap; margin-bottom:8px; }
-  .ctitle { font-weight:700; font-size:1rem; flex:1; min-width:200px; }
+  .ctitle { font-weight:700; font-size:1rem; }
+  .charthead { display:flex; justify-content:space-between; align-items:baseline; gap:6px 16px; flex-wrap:wrap; margin-bottom:6px; }
+  .cval { font-weight:600; font-size:.95rem; color:#1d2b50; text-align:right; margin-left:auto; }
   .chartbox { position:relative; width:100%; }
   .chartbox svg { display:block; touch-action:pan-y; }
   .tip { position:absolute; top:6px; background:#fff; border:1px solid var(--border); border-radius:4px; padding:6px 9px; font-size:.82rem; line-height:1.35; pointer-events:none; box-shadow:0 2px 6px rgba(0,0,0,.12); white-space:nowrap; display:none; z-index:2; }
@@ -102,9 +105,9 @@
 </div>
 <div class="chartsec">
   <div class="chartbar">
-    <div class="ctitle" id="ctitle"></div>
     <div class="f"><label for="selMetric">Chart</label><select id="selMetric"></select></div>
   </div>
+  <div class="charthead"><div class="ctitle" id="ctitle"></div><div class="cval" id="cval"></div></div>
   <div class="chartbox" id="chart"></div>
 </div>
 <div class="src" id="src"></div>
@@ -214,7 +217,7 @@ function axisLabel(v, t) {
 function chartSVG(W, H, d, interactive, key) {
   var m = metricObj(key || sel.metric), vals = d[m[0]], t = m[2];
   var pts = vals.filter(function (v) { return v != null; });
-  var small = W < 520, L = small ? 46 : 64, R = small ? 22 : 26, T = 12, B = 46;
+  var small = W < 520, L = small ? 46 : 64, R = small ? 30 : 44, T = 12, B = 46;
   var fs = small ? 10 : 12;
   if (!pts.length) return { html: '<div class="nodata">No data for this selection.</div>', g: null };
   var lo = Math.min.apply(null, pts), hi = Math.max.apply(null, pts);
@@ -259,7 +262,6 @@ function chartSVG(W, H, d, interactive, key) {
   for (i = 0; i < N; i++) if (vals[i] != null && (i === N - 1 || !interactive || N <= 40)) {
     s += '<circle cx="' + X(i).toFixed(1) + '" cy="' + Y(vals[i]).toFixed(1) + '" r="' + (i === N - 1 ? 4 : 2.4) + '" fill="' + (i === N - 1 ? LINE : "#ffffff") + '" stroke="' + LINE + '" stroke-width="1.6"/>';
   }
-  if (!small && vals[N - 1] != null) s += '<text x="' + X(N - 1).toFixed(1) + '" y="' + (Y(vals[N - 1]) - 10).toFixed(1) + '" text-anchor="end" font-size="' + (fs + 1) + '" font-weight="700" fill="' + LINE + '">' + fmt(vals[N - 1], t) + "</text>";
   if (interactive) s += '<line id="hov" x1="0" x2="0" y1="' + T + '" y2="' + (H - B) + '" stroke="#999999" stroke-dasharray="3 3" visibility="hidden"/><circle id="hovdot" r="5.5" fill="' + LINE + '" stroke="#ffffff" stroke-width="2" visibility="hidden"/>';
   s += "</svg>";
   return { html: s, g: { W: W, L: L, R: R, X: X, Y: Y, vals: vals, t: t } };
@@ -269,6 +271,7 @@ function renderChart() {
   var d = compute(), box = document.getElementById("chart");
   var W = Math.max(280, Math.floor(box.clientWidth || 600)), H = W < 520 ? 256 : 316;
   document.getElementById("ctitle").textContent = chartTitle();
+  document.getElementById("cval").textContent = headVal(sel.metric, d);
   var c = chartSVG(W, H, d, true);
   box.innerHTML = c.html + '<div class="tip" id="tip"></div>';
   CG = c.g;
@@ -349,6 +352,17 @@ function summaryHTML(d) {
   if (n < 10) html += '<p class="note">Note: with fewer than 10 closed sales, these figures can swing widely from month to month.</p>';
   return html;
 }
+
+/* "October 2026: 211 closed sales" shown at the top right of each chart */
+function headVal(key, d) {
+  var v = d[key][N - 1], m = metricObj(key), mon = periodLabel(DATA.periods[N - 1]);
+  if (v == null) return mon + ": no data";
+  var t = fmt(v, m[2]);
+  var txt = { closed: t + (Math.round(v) === 1 ? " closed sale" : " closed sales"), price: t, dom: t + (Math.round(v) === 1 ? " day on market" : " days on market"),
+    newl: t + (Math.round(v) === 1 ? " new listing" : " new listings"), ratio: t + " of final list price",
+    per: t + (PER_ACRE[sel.type] ? " per acre" : " per sq ft") }[key];
+  return mon + ": " + txt;
+}
 function areaOptions() {
   var seen = {};
   DATA.closed.concat(DATA.listed).forEach(function (r) { if (sel.county < 0 || r[1] === sel.county) seen[r[2]] = 1; });
@@ -409,8 +423,8 @@ function buildSheet() {
   h += '<table><colgroup><col style="width:31%"><col style="width:23%"><col style="width:23%"><col style="width:23%"></colgroup><thead>' + headHTML() + "</thead><tbody>" + bodyHTML(series) + "</tbody></table>";
   h += '<div class="legend" style="margin-top:12px;border:1px solid var(--border)">The change from the previous <b>Month</b>: <span><b class="up">&#9650;</b> Increased</span><span><b class="down">&#9660;</b> Decreased</span><span><b class="flat">&#8596;</b> No Change</span></div>';
   [sel.metric, other].forEach(function (k) {
-    var c = chartSVG(952, 250, series, false, k);
-    h += '<div class="chartsec"><div class="ctitle" style="margin-bottom:6px">' + chartTitle(k) + "</div>" + c.html + "</div>";
+    var c = chartSVG(924, 250, series, false, k);
+    h += '<div class="chartsec"><div class="charthead"><div class="ctitle">' + chartTitle(k) + '</div><div class="cval">' + headVal(k, series) + "</div></div>" + c.html + "</div>";
   });
   h += '<div class="summ"><h2>Summary</h2>' + summaryHTML(series) + "</div>";
   h += '<div class="src">' + document.getElementById("src").textContent + "</div>";
