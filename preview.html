@@ -6,11 +6,12 @@
 <title>BSCMLS Market Statistics</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root { --bg:#fff; --text:#212529; --muted:#6c757d; --border:#dee2e6; --band:#f1f1f1; --btn:#dc3545; --up:#1db980; --down:#c00020; }
   * { box-sizing: border-box; }
-  html, body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  html, body { margin:0; background:var(--bg); color:var(--text); font-family:"Lexend",-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  select, button, input { font-family:inherit; }
   body { padding:12px; }
   h1 { text-align:center; font-family:"Lexend",-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; font-size:1.6rem; margin:4px 0 4px; font-weight:600; }
   .updated { text-align:center; color:var(--muted); font-size:.85rem; margin:0 0 12px; }
@@ -206,7 +207,7 @@ function axisLabel(v, t) {
 function chartSVG(W, H, d, interactive) {
   var m = metricObj(sel.metric), vals = d[m[0]], t = m[2];
   var pts = vals.filter(function (v) { return v != null; });
-  var small = W < 520, L = small ? 46 : 64, R = small ? 22 : 26, T = 12, B = 30;
+  var small = W < 520, L = small ? 46 : 64, R = small ? 22 : 26, T = 12, B = 46;
   var fs = small ? 10 : 12;
   if (!pts.length) return { html: '<div class="nodata">No data for this selection.</div>', g: null };
   var lo = Math.min.apply(null, pts), hi = Math.max.apply(null, pts);
@@ -229,6 +230,7 @@ function chartSVG(W, H, d, interactive) {
     if ((N - 1 - i) % every === 0) {
       s += '<line x1="' + x + '" x2="' + x + '" y1="' + (H - B) + '" y2="' + (H - B + 4) + '" stroke="#999999"/>';
       s += '<text x="' + x + '" y="' + (H - B + 17) + '" text-anchor="middle" font-size="' + fs + '" fill="#555555">' + MSHORT[+p[1] - 1] + " " + (small ? "’" + p[0].slice(2) : p[0]) + "</text>";
+      s += '<text x="' + x + '" y="' + (H - B + 32) + '" text-anchor="middle" font-size="' + fs + '" fill="#555555">Q' + Math.ceil(+p[1] / 3) + "</text>";
     }
   }
   /* line, broken at missing values */
@@ -248,7 +250,7 @@ function chartSVG(W, H, d, interactive) {
 var CG = null;
 function renderChart() {
   var d = compute(), box = document.getElementById("chart");
-  var W = Math.max(280, Math.floor(box.clientWidth || 600)), H = W < 520 ? 240 : 300;
+  var W = Math.max(280, Math.floor(box.clientWidth || 600)), H = W < 520 ? 256 : 316;
   document.getElementById("ctitle").textContent = chartTitle();
   var c = chartSVG(W, H, d, true);
   box.innerHTML = c.html + '<div class="tip" id="tip"></div>';
@@ -341,7 +343,7 @@ function buildSheet() {
   h += '<p class="fsum"><b>' + filterSummary().replace(/  \|  /g, "</b> &nbsp;|&nbsp; <b>").replace(/: /g, ":</b> ").replace(/<b>(?=[^<]*$)/, "") + "</p>";
   h += '<table><colgroup><col style="width:31%"><col style="width:23%"><col style="width:23%"><col style="width:23%"></colgroup><thead>' + headHTML() + "</thead><tbody>" + bodyHTML(series) + "</tbody></table>";
   h += '<div class="legend" style="margin-top:12px;border:1px solid var(--border)">The change from the previous <b>Month</b>: <span><b class="up">&#9650;</b> Increased</span><span><b class="down">&#9660;</b> Decreased</span><span><b class="flat">&#8596;</b> No Change</span></div>';
-  var c = chartSVG(952, 300, series, false);
+  var c = chartSVG(952, 316, series, false);
   h += '<div class="chartsec"><div class="ctitle" style="margin-bottom:6px">' + chartTitle() + "</div>" + c.html + "</div>";
   h += '<div class="src">' + document.getElementById("src").textContent + "</div>";
   document.getElementById("sheet").innerHTML = h;
@@ -351,7 +353,7 @@ document.getElementById("pdf").addEventListener("click", function () {
   var btn = this, label = btn.innerHTML;
   btn.disabled = true; btn.textContent = "Creating PDF\u2026";
   var sheet = buildSheet();
-  var fontReady = (document.fonts && document.fonts.load) ? document.fonts.load("600 24px Lexend").catch(function () {}) : null;
+  var fontReady = (document.fonts && document.fonts.load) ? Promise.all(["400","500","600","700"].map(function (w) { return document.fonts.load(w + " 16px Lexend"); })).catch(function () {}) : null;
   Promise.resolve(fontReady).then(function () {
     return html2canvas(sheet, { scale: 2, backgroundColor: "#ffffff" });
   }).then(function (canvas) {
