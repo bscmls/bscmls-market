@@ -1,6 +1,7 @@
-"""Pulls closed sales + new listings for the 11 BSCMLS service-area counties (Montana only)
+"""Pulls 36 months of closed sales + new listings for the 11 BSCMLS service-area counties (Montana only)
 from Cotality Trestle and writes rows.json for the Market Overview page."""
 import json, os, sys, datetime as dt
+from collections import Counter
 import requests
 
 BASE = "https://api.cotality.com/trestle"
@@ -45,17 +46,26 @@ def bounds(y, m):
     s = dt.date(y, m, 1)
     return s, dt.date(y + (m == 12), m % 12 + 1, 1) - dt.timedelta(days=1)
 
+def month_list(y, m, n=36):
+    """The n months ending with (y, m), oldest first."""
+    out = []
+    for i in range(n - 1, -1, -1):
+        yy, mm = y, m - i
+        while mm < 1:
+            mm += 12; yy -= 1
+        out.append((yy, mm))
+    return out
+
 def main():
     today = dt.date.today()
     y, m = (today.year, today.month - 1) if today.month > 1 else (today.year - 1, 12)
     if len(sys.argv) == 3:
         y, m = int(sys.argv[1]), int(sys.argv[2])
-    py, pm = (y, m - 1) if m > 1 else (y - 1, 12)
-    periods = [(y, m), (py, pm), (y - 1, m)]
+    periods = month_list(y, m)
     county_flt = "(" + " or ".join(f"CountyOrParish eq '{c}'" for c in COUNTIES) + ")"
     base = f"StateOrProvince eq 'MT' and {county_flt}"
     tok = token()
-    areas, closed, listed = [], [], []
+    areas, closed, listed = [], [], Counter()
     def area_idx(a):
         a = a or "Unassigned"
         if a not in areas: areas.append(a)
@@ -73,13 +83,14 @@ def main():
                        "PropertyType,PropertySubType,CountyOrParish,MLSAreaMajor"):
             t = TYPE_MAP.get((r.get("PropertyType"), r.get("PropertySubType")))
             if not t or r.get("CountyOrParish") not in COUNTIES: continue
-            listed.append([p, COUNTIES.index(r["CountyOrParish"]), area_idx(r.get("MLSAreaMajor")), TYPES.index(t)])
+            listed[(p, COUNTIES.index(r["CountyOrParish"]), area_idx(r.get("MLSAreaMajor")), TYPES.index(t))] += 1
     data = {"updated": today.isoformat(),
             "periods": [f"{a}-{b:02d}" for a, b in periods],
-            "counties": COUNTIES, "areas": areas, "types": TYPES, "closed": closed, "listed": listed}
+            "counties": COUNTIES, "areas": areas, "types": TYPES, "closed": closed,
+            "listed": [list(k) + [n] for k, n in sorted(listed.items())]}
     with open("rows.json", "w") as f:
         json.dump(data, f, separators=(",", ":"))
-    print(f"Wrote rows.json: {len(closed)} closed, {len(listed)} listed, month {periods[0]}")
+    print(f"Wrote rows.json: {len(closed)} closed rows, {sum(listed.values())} new listings, latest month {periods[-1]}")
 
 if __name__ == "__main__":
     main()

@@ -52,12 +52,24 @@
     .legend { font-size:.78rem; padding:8px; }
     .legend span { margin:0 5px; }
     .src { font-size:.68rem; }
+    .chartsec { padding:8px 6px 2px; }
+    .ctitle { font-size:.9rem; min-width:0; flex:none; width:100%; }
+    .chartbar .f { width:100%; }
+    .chartbar .f select { max-width:none; width:100%; }
   }
+  .chartsec { margin-top:18px; border:1px solid var(--border); padding:12px 12px 6px; }
+  .chartbar { display:flex; justify-content:space-between; align-items:flex-end; gap:10px; flex-wrap:wrap; margin-bottom:8px; }
+  .ctitle { font-weight:700; font-size:1rem; flex:1; min-width:200px; }
+  .chartbox { position:relative; width:100%; }
+  .chartbox svg { display:block; touch-action:pan-y; }
+  .tip { position:absolute; top:6px; background:#fff; border:1px solid var(--border); border-radius:4px; padding:6px 9px; font-size:.82rem; line-height:1.35; pointer-events:none; box-shadow:0 2px 6px rgba(0,0,0,.12); white-space:nowrap; display:none; z-index:2; }
+  .nodata { text-align:center; color:var(--muted); padding:60px 0; }
   /* off-screen sheet used only to make the PDF */
   #sheet { position:absolute; left:-10000px; top:0; width:1000px; background:#fff; padding:20px 24px; }
   #sheet table { min-width:0; border:1px solid var(--border); margin-top:10px; }
   #sheet th, #sheet td { padding:11px 12px; }
   #sheet .fsum { text-align:center; font-size:.95rem; margin:0 0 6px; }
+  #sheet .chartsec { margin-top:14px; }
 </style>
 </head>
 <body>
@@ -80,6 +92,13 @@
     <span><b class="flat">&#8596;</b> No Change</span>
   </div>
 </div>
+<div class="chartsec">
+  <div class="chartbar">
+    <div class="ctitle" id="ctitle"></div>
+    <div class="f"><label for="selMetric">Chart</label><select id="selMetric"></select></div>
+  </div>
+  <div class="chartbox" id="chart"></div>
+</div>
 <div class="src" id="src"></div>
 <div id="sheet"></div>
 
@@ -90,7 +109,7 @@
    rows.json: periods[0]=current month, [1]=previous month, [2]=same month last year.
    closed rows: [period, county, area, type, closePrice, listPrice, daysOnMarket, sqft, acres]
    listed rows: [period, county, area, type] */
-var DATA = null;
+var DATA = null, N = 0;
 var TYPE_GROUPS = [
   ["Residential", [["sfh","Single Family"],["condo","Condominium"],["th","Townhouse"],["mh","Manufactured Home"],["ALL_RES","ALL RESIDENTIAL"]]],
   ["Land", [["land_struct","Land w/Structure"],["vacant","Vacant Land"],["ALL_LAND","ALL LAND"]]],
@@ -103,7 +122,11 @@ var TYPE_SETS = {
 };
 var PER_ACRE = { land_struct:1, vacant:1, c_land:1, ALL_LAND:1 };
 var MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-var sel = { type: "sfh", county: -1, area: -1 };
+var MSHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+var METRICS = [["closed","Closed Sales","int"],["price","Median Sale Price","usd"],["dom","Median Days on Market","int"],
+               ["newl","New Listings","int"],["ratio","Sale to List Price Ratio","pct"],["per","","usd"]];
+var sel = { type: "sfh", county: -1, area: -1, metric: "closed" };
+var LINE = "#1d2b50";
 
 function typeLabel(k) { var out = k; TYPE_GROUPS.forEach(function (g) { g[1].forEach(function (t) { if (t[0] === k) out = t[1]; }); }); return out; }
 function typeIdxSet(k) {
@@ -119,29 +142,34 @@ function median(a) {
 }
 function periodLabel(iso) { var p = iso.split("-"); return MONTHS[+p[1] - 1] + " " + p[0]; }
 function prettyDate(iso) { var p = iso.split("-"); return MONTHS[+p[1] - 1] + " " + (+p[2]) + ", " + p[0]; }
+function metricObj(k) { return METRICS.filter(function (m) { return m[0] === k; })[0]; }
+function metricLabel(m) { return m[1] || (PER_ACRE[sel.type] ? "Average Sale Price per Acre" : "Average Sale Price per Square Foot"); }
 
+/* Series for every period (oldest first, index N-1 = current month) */
 function compute() {
   var ts = typeIdxSet(sel.type), acre = !!PER_ACRE[sel.type];
   function ok(r) { return ts[r[3]] && (sel.county < 0 || r[1] === sel.county) && (sel.area < 0 || r[2] === sel.area); }
   var out = { closed: [], price: [], dom: [], newl: [], ratio: [], per: [] };
-  for (var p = 0; p < 3; p++) {
-    var c = DATA.closed.filter(function (r) { return r[0] === p && ok(r); });
-    var n = DATA.listed.filter(function (r) { return r[0] === p && ok(r); }).length;
+  var by = [], nl = [], p;
+  for (p = 0; p < N; p++) { by.push([]); nl.push(0); }
+  DATA.closed.forEach(function (r) { if (ok(r)) by[r[0]].push(r); });
+  DATA.listed.forEach(function (r) { if (ok(r)) nl[r[0]] += r[4]; });
+  for (p = 0; p < N; p++) {
     var prices = [], doms = [], ratios = [], sumP = 0, sumA = 0;
-    c.forEach(function (r) {
+    by[p].forEach(function (r) {
       if (r[4]) prices.push(r[4]);
       if (r[6] != null && r[6] >= 0) doms.push(r[6]);
       if (r[4] && r[5]) ratios.push(r[4] / r[5] * 100);
       var a = acre ? r[8] : r[7];
       if (r[4] && a > 0) { sumP += r[4]; sumA += a; }
     });
-    out.closed.push(c.length); out.price.push(median(prices)); out.dom.push(median(doms));
-    out.newl.push(n); out.ratio.push(median(ratios)); out.per.push(sumA > 0 ? sumP / sumA : null);
+    out.closed.push(by[p].length); out.price.push(median(prices)); out.dom.push(median(doms));
+    out.newl.push(nl[p]); out.ratio.push(median(ratios)); out.per.push(sumA > 0 ? sumP / sumA : null);
   }
   return out;
 }
 function fmt(v, t) {
-  if (v === null || v === undefined) return "\u2014";
+  if (v === null || v === undefined) return "—";
   if (t === "usd") return "$" + Math.round(v).toLocaleString("en-US");
   if (t === "pct") return Math.round(v) + "%";
   return Math.round(v).toLocaleString("en-US");
@@ -153,17 +181,108 @@ function ind(cur, prev) {
   if (a < b) return '<span class="ind down">&#9660;</span>';
   return '<span class="ind flat">&#8596;</span>';
 }
-function headHTML() { return "<tr><th></th>" + DATA.periods.map(function (p) { return "<th>" + periodLabel(p) + "</th>"; }).join("") + "</tr>"; }
-function bodyHTML() {
-  var d = compute();
-  var metrics = [["closed","Closed Sales","int"],["price","Median Sale Price","usd"],["dom","Median Days on Market","int"],
-                 ["newl","New Listings","int"],["ratio","Sale to List Price Ratio","pct"],
-                 ["per", PER_ACRE[sel.type] ? "Average Sale Price per Acre" : "Average Sale Price per Square Foot", "usd"]];
-  return metrics.map(function (m) {
-    var v = d[m[0]], t = m[2];
-    return "<tr><td>" + m[1] + '</td><td class="cur">' + fmt(v[0], t) + ind(v[0], v[1]) + "</td><td>" + fmt(v[1], t) + "</td><td>" + fmt(v[2], t) + "</td></tr>";
+function tableIdx() { return [N - 1, N - 2, N - 13]; }
+function headHTML() { return "<tr><th></th>" + tableIdx().map(function (i) { return "<th>" + periodLabel(DATA.periods[i]) + "</th>"; }).join("") + "</tr>"; }
+function bodyHTML(d) {
+  var ix = tableIdx();
+  return METRICS.map(function (m) {
+    var v = ix.map(function (i) { return d[m[0]][i]; }), t = m[2];
+    return "<tr><td>" + metricLabel(m) + '</td><td class="cur">' + fmt(v[0], t) + ind(v[0], v[1]) + "</td><td>" + fmt(v[1], t) + "</td><td>" + fmt(v[2], t) + "</td></tr>";
   }).join("");
 }
+
+/* ---------- 3-year line chart ---------- */
+function chartTitle() { return metricLabel(metricObj(sel.metric)) + " — last 3 years"; }
+function niceStep(range, ticks) {
+  var raw = range / ticks, mag = Math.pow(10, Math.floor(Math.log(raw) / Math.LN10)), f = raw / mag;
+  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * mag;
+}
+function axisLabel(v, t) {
+  if (t === "usd") { if (Math.abs(v) >= 1e6) return "$" + +(v / 1e6).toFixed(2) + "M"; if (Math.abs(v) >= 1e4) return "$" + Math.round(v / 1e3) + "K"; return "$" + Math.round(v).toLocaleString("en-US"); }
+  if (t === "pct") return Math.round(v) + "%";
+  return Math.round(v).toLocaleString("en-US");
+}
+/* returns {html, g} where g holds scale info for the tooltip */
+function chartSVG(W, H, d, interactive) {
+  var m = metricObj(sel.metric), vals = d[m[0]], t = m[2];
+  var pts = vals.filter(function (v) { return v != null; });
+  var small = W < 520, L = small ? 46 : 64, R = small ? 22 : 26, T = 12, B = 30;
+  var fs = small ? 10 : 12;
+  if (!pts.length) return { html: '<div class="nodata">No data for this selection.</div>', g: null };
+  var lo = Math.min.apply(null, pts), hi = Math.max.apply(null, pts);
+  if (t === "int" || m[0] === "closed" || m[0] === "newl") lo = Math.min(0, lo);
+  if (hi === lo) { hi = hi + 1; lo = lo - 1 < 0 && lo >= 0 ? 0 : lo - 1; }
+  var step = niceStep(hi - lo, 5);
+  var y0 = Math.floor(lo / step) * step, y1 = Math.ceil(hi / step) * step;
+  function X(i) { return L + (W - L - R) * i / (N - 1); }
+  function Y(v) { return T + (H - T - B) * (1 - (v - y0) / (y1 - y0)); }
+  var s = '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + " " + H + '" font-family="Lexend, Arial, sans-serif" role="img" aria-label="' + chartTitle() + '">';
+  s += '<rect width="' + W + '" height="' + H + '" fill="#ffffff"/>';
+  for (var v = y0; v <= y1 + step / 2; v += step) {
+    var y = Y(v).toFixed(1);
+    s += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y + '" y2="' + y + '" stroke="#e3e6ec" stroke-width="1"/>';
+    s += '<text x="' + (L - 8) + '" y="' + (+y + 4) + '" text-anchor="end" font-size="' + fs + '" fill="#555555">' + axisLabel(v, t) + "</text>";
+  }
+  var every = small ? 6 : 3, i;
+  for (i = 0; i < N; i++) {
+    var p = DATA.periods[i].split("-"), x = X(i).toFixed(1);
+    if ((N - 1 - i) % every === 0) {
+      s += '<line x1="' + x + '" x2="' + x + '" y1="' + (H - B) + '" y2="' + (H - B + 4) + '" stroke="#999999"/>';
+      s += '<text x="' + x + '" y="' + (H - B + 17) + '" text-anchor="middle" font-size="' + fs + '" fill="#555555">' + MSHORT[+p[1] - 1] + " " + (small ? "’" + p[0].slice(2) : p[0]) + "</text>";
+    }
+  }
+  /* line, broken at missing values */
+  var path = "", pen = false;
+  for (i = 0; i < N; i++) {
+    if (vals[i] == null) { pen = false; continue; }
+    path += (pen ? "L" : "M") + X(i).toFixed(1) + "," + Y(vals[i]).toFixed(1); pen = true;
+  }
+  s += '<path d="' + path + '" fill="none" stroke="' + LINE + '" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>';
+  for (i = 0; i < N; i++) if (vals[i] != null && (i === N - 1 || !interactive || N <= 40)) {
+    s += '<circle cx="' + X(i).toFixed(1) + '" cy="' + Y(vals[i]).toFixed(1) + '" r="' + (i === N - 1 ? 4 : 2.4) + '" fill="' + (i === N - 1 ? LINE : "#ffffff") + '" stroke="' + LINE + '" stroke-width="1.6"/>';
+  }
+  if (interactive) s += '<line id="hov" x1="0" x2="0" y1="' + T + '" y2="' + (H - B) + '" stroke="#999999" stroke-dasharray="3 3" visibility="hidden"/><circle id="hovdot" r="5.5" fill="' + LINE + '" stroke="#ffffff" stroke-width="2" visibility="hidden"/>';
+  s += "</svg>";
+  return { html: s, g: { W: W, L: L, R: R, X: X, Y: Y, vals: vals, t: t } };
+}
+var CG = null;
+function renderChart() {
+  var d = compute(), box = document.getElementById("chart");
+  var W = Math.max(280, Math.floor(box.clientWidth || 600)), H = W < 520 ? 240 : 300;
+  document.getElementById("ctitle").textContent = chartTitle();
+  var c = chartSVG(W, H, d, true);
+  box.innerHTML = c.html + '<div class="tip" id="tip"></div>';
+  CG = c.g;
+  var svg = box.querySelector("svg");
+  if (!svg || !CG) return;
+  svg.addEventListener("pointermove", showTip);
+  svg.addEventListener("pointerdown", showTip);
+  svg.addEventListener("pointerleave", hideTip);
+}
+function showTip(e) {
+  if (!CG) return;
+  var svg = e.currentTarget, r = svg.getBoundingClientRect();
+  var x = (e.clientX - r.left) * (CG.W / r.width);
+  var i = Math.round((x - CG.L) / (CG.W - CG.L - CG.R) * (N - 1));
+  i = Math.max(0, Math.min(N - 1, i));
+  var v = CG.vals[i], tip = document.getElementById("tip");
+  if (v == null) { hideTip(); return; }
+  var px = CG.X(i), py = CG.Y(v), hov = document.getElementById("hov"), dot = document.getElementById("hovdot");
+  hov.setAttribute("x1", px); hov.setAttribute("x2", px); hov.setAttribute("visibility", "visible");
+  dot.setAttribute("cx", px); dot.setAttribute("cy", py); dot.setAttribute("visibility", "visible");
+  tip.innerHTML = "<b>" + periodLabel(DATA.periods[i]) + "</b><br>" + metricLabel(metricObj(sel.metric)) + ": <b>" + fmt(v, CG.t) + "</b>";
+  tip.style.display = "block";
+  var scale = r.width / CG.W, tw = tip.offsetWidth, left = px * scale + 12;
+  if (left + tw > r.width) left = px * scale - tw - 12;
+  tip.style.left = Math.max(0, left) + "px";
+}
+function hideTip() {
+  var tip = document.getElementById("tip"); if (tip) tip.style.display = "none";
+  ["hov", "hovdot"].forEach(function (id) { var e = document.getElementById(id); if (e) e.setAttribute("visibility", "hidden"); });
+}
+var rzT = null;
+window.addEventListener("resize", function () { clearTimeout(rzT); rzT = setTimeout(function () { if (DATA) renderChart(); }, 150); });
+
 function areaOptions() {
   var seen = {};
   DATA.closed.concat(DATA.listed).forEach(function (r) { if (sel.county < 0 || r[1] === sel.county) seen[r[2]] = 1; });
@@ -178,6 +297,8 @@ function buildSelects() {
   var c = document.getElementById("selCounty");
   c.innerHTML = '<option value="-1">All service-area counties</option>' + DATA.counties.map(function (n, i) { return '<option value="' + i + '">' + n + "</option>"; }).join("");
   c.value = String(sel.county);
+  document.getElementById("selMetric").innerHTML = METRICS.map(function (m) { return '<option value="' + m[0] + '">' + metricLabel(m) + "</option>"; }).join("");
+  document.getElementById("selMetric").value = sel.metric;
   fillAreas();
 }
 function fillAreas() {
@@ -197,23 +318,31 @@ function srcText() {
   return "Source: Big Sky Country MLS. Includes Montana listings in " + scope + ". Closed sales by close date; new listings by listing contract date.";
 }
 function render() {
+  var series = compute();
   document.getElementById("updated").textContent = "Data updated " + prettyDate(DATA.updated);
   document.getElementById("sample").hidden = !DATA.sample;
   document.getElementById("head").innerHTML = headHTML();
-  document.getElementById("rows").innerHTML = bodyHTML();
+  document.getElementById("rows").innerHTML = bodyHTML(series);
   document.getElementById("src").textContent = srcText();
+  var ms = document.getElementById("selMetric");
+  Array.prototype.forEach.call(ms.options, function (o) { o.textContent = metricLabel(metricObj(o.value)); });
+  renderChart();
 }
 document.getElementById("selType").addEventListener("change", function () { sel.type = this.value; render(); });
+document.getElementById("selMetric").addEventListener("change", function () { sel.metric = this.value; renderChart(); });
 document.getElementById("selCounty").addEventListener("change", function () { sel.county = +this.value; fillAreas(); render(); });
 document.getElementById("selArea").addEventListener("change", function () { sel.area = +this.value; render(); });
 
 /* PDF: one page showing the current selection */
 function buildSheet() {
+  var series = compute();
   var h = '<h1 style="margin:0 0 4px">BSCMLS Market Statistics</h1><p class="updated">Data updated ' + prettyDate(DATA.updated) + "</p>";
   if (DATA.sample) h += '<div class="sample">SAMPLE DATA &mdash; NOT REAL NUMBERS</div>';
   h += '<p class="fsum"><b>' + filterSummary().replace(/  \|  /g, "</b> &nbsp;|&nbsp; <b>").replace(/: /g, ":</b> ").replace(/<b>(?=[^<]*$)/, "") + "</p>";
-  h += '<table><colgroup><col style="width:31%"><col style="width:23%"><col style="width:23%"><col style="width:23%"></colgroup><thead>' + headHTML() + "</thead><tbody>" + bodyHTML() + "</tbody></table>";
+  h += '<table><colgroup><col style="width:31%"><col style="width:23%"><col style="width:23%"><col style="width:23%"></colgroup><thead>' + headHTML() + "</thead><tbody>" + bodyHTML(series) + "</tbody></table>";
   h += '<div class="legend" style="margin-top:12px;border:1px solid var(--border)">The change from the previous <b>Month</b>: <span><b class="up">&#9650;</b> Increased</span><span><b class="down">&#9660;</b> Decreased</span><span><b class="flat">&#8596;</b> No Change</span></div>';
+  var c = chartSVG(952, 300, series, false);
+  h += '<div class="chartsec"><div class="ctitle" style="margin-bottom:6px">' + chartTitle() + "</div>" + c.html + "</div>";
   h += '<div class="src">' + document.getElementById("src").textContent + "</div>";
   document.getElementById("sheet").innerHTML = h;
   return document.getElementById("sheet");
@@ -240,7 +369,7 @@ document.getElementById("pdf").addEventListener("click", function () {
 });
 
 fetch("rows.json?v=" + Date.now()).then(function (r) { return r.json(); }).then(function (d) {
-  DATA = d; buildSelects(); render();
+  DATA = d; N = d.periods.length; buildSelects(); render();
 }).catch(function () { document.getElementById("src").textContent = "Data unavailable."; });
 </script>
 </body>
