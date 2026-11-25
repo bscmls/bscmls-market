@@ -327,7 +327,7 @@ function vs(a, b, c) {
 function summaryHTML(d) {
   var ix = tableIdx(), c = ix[0], pm = ix[1], py = ix[2], mon = periodLabel(DATA.periods[c]);
   function g(k, i) { return d[k][i]; }
-  var type = typeLabel(sel.type), n = g("closed", c), out = [], v;
+  var type = ({ ALL_RES: "residential", ALL_LAND: "land", ALL_COM: "commercial" })[sel.type] || typeLabel(sel.type), n = g("closed", c), out = [], v;
   var s1 = "In " + mon + ", there " + (n === 1 ? "was <b>1</b> closed sale" : "were <b>" + fmt(n, "int") + "</b> closed sales") + " of <b>" + type + "</b> properties in <b>" + scopeText() + "</b>";
   v = n ? vs(n, g("closed", pm), g("closed", py)) : "";
   out.push(s1 + (v ? ", " + v : "") + ".");

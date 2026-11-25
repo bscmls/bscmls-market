@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BSCMLS Monthly Market Summary</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing:border-box; }
+  html, body { margin:0; background:#fff; color:#212529; font-family:"Lexend",-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; }
+  body { padding:12px; }
+  h1 { font-size:1.35rem; font-weight:600; margin:0 0 4px; color:#1d2b50; }
+  .updated { color:#6c757d; font-size:.8rem; margin:0 0 12px; }
+  .sample { background:#fff3cd; color:#664d03; border:1px solid #ffecb5; text-align:center; font-weight:700; padding:6px; margin:0 0 10px; font-size:.85rem; }
+  p { margin:0 0 10px; font-size:.95rem; line-height:1.65; }
+  .note { color:#6c757d; font-size:.8rem; }
+  @media (max-width:700px) { body { padding:6px; } h1 { font-size:1.15rem; } p { font-size:.9rem; } }
+</style>
+</head>
+<body>
+<h1 id="ttl">Market Summary</h1>
+<p class="updated" id="updated"></p>
+<div class="sample" id="sample" hidden>SAMPLE DATA &mdash; NOT REAL NUMBERS</div>
+<div id="out"></div>
+<script>
+var DATA = null, N = 0;
+var TYPE_GROUPS = [
+  ["Residential", [["sfh","Single Family"],["condo","Condominium"],["th","Townhouse"],["mh","Manufactured Home"],["ALL_RES","ALL RESIDENTIAL"]]],
+  ["Land", [["land_struct","Land w/Structure"],["vacant","Vacant Land"],["ALL_LAND","ALL LAND"]]],
+  ["Commercial", [["c_bldg","Commercial Building"],["c_condo","Commercial Condo"],["c_land","Commercial Land"],["biz_lease","Business w/Assignable Lease"],["biz_bldg","Business & Building"],["ALL_COM","ALL COMMERCIAL"]]]
+];
+var TYPE_SETS = {
+  ALL_RES: ["sfh","condo","th","mh"],
+  ALL_LAND: ["land_struct","vacant"],
+  ALL_COM: ["c_bldg","c_condo","c_land","biz_lease","biz_bldg"]
+};
+var PER_ACRE = { land_struct:1, vacant:1, c_land:1, ALL_LAND:1 };
+var MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+var MSHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+var METRICS = [["closed","Closed Sales","int"],["price","Median Sale Price","usd"],["dom","Median Days on Market","int"],
+               ["newl","New Listings","int"],["ratio","Avg % of Final List Price Received","pct"],["per","","usd"]];
+var sel = { type: "sfh", county: -1, area: -1, metric: "closed" };
+var LINE = "#1d2b50";
+
+function typeLabel(k) { var out = k; TYPE_GROUPS.forEach(function (g) { g[1].forEach(function (t) { if (t[0] === k) out = t[1]; }); }); return out; }
+function typeIdxSet(k) {
+  var keys = TYPE_SETS[k] || [k], set = {};
+  keys.forEach(function (x) { var i = DATA.types.indexOf(x); if (i >= 0) set[i] = 1; });
+  return set;
+}
+function median(a) {
+  if (!a.length) return null;
+  a = a.slice().sort(function (x, y) { return x - y; });
+  var m = a.length >> 1;
+  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+}
+function periodLabel(iso) { var p = iso.split("-"); return MONTHS[+p[1] - 1] + " " + p[0]; }
+function prettyDate(iso) { var p = iso.split("-"); return MONTHS[+p[1] - 1] + " " + (+p[2]) + ", " + p[0]; }
+function metricObj(k) { return METRICS.filter(function (m) { return m[0] === k; })[0]; }
+function metricLabel(m) { return m[1] || (PER_ACRE[sel.type] ? "Median Sold $/Acre" : "Median Sold $/SqFt"); }
+
+/* Series for every period (oldest first, index N-1 = current month) */
+function compute() {
+  var ts = typeIdxSet(sel.type), acre = !!PER_ACRE[sel.type];
+  function ok(r) { return ts[r[3]] && (sel.county < 0 || r[1] === sel.county) && (sel.area < 0 || r[2] === sel.area); }
+  var out = { closed: [], price: [], dom: [], newl: [], ratio: [], per: [] };
+  var by = [], nl = [], p;
+  for (p = 0; p < N; p++) { by.push([]); nl.push(0); }
+  DATA.closed.forEach(function (r) { if (ok(r)) by[r[0]].push(r); });
+  DATA.listed.forEach(function (r) { if (ok(r)) nl[r[0]] += r[4]; });
+  for (p = 0; p < N; p++) {
+    var prices = [], doms = [], ratios = [], pers = [];
+    by[p].forEach(function (r) {
+      if (r[4]) prices.push(r[4]);
+      if (r[6] != null && r[6] >= 0) doms.push(r[6]);
+      if (r[4] && r[5]) ratios.push(r[4] / r[5] * 100);
+      var a = acre ? r[8] : r[7];
+      if (r[4] && a > 0) pers.push(r[4] / a);
+    });
+    out.closed.push(by[p].length); out.price.push(median(prices)); out.dom.push(median(doms));
+    out.newl.push(nl[p]); out.ratio.push(ratios.length ? ratios.reduce(function (x, y) { return x + y; }, 0) / ratios.length : null); out.per.push(median(pers));
+  }
+  return out;
+}
+function fmt(v, t) {
+  if (v === null || v === undefined) return "—";
+  if (t === "usd") return "$" + Math.round(v).toLocaleString("en-US");
+  if (t === "pct") return v.toFixed(1) + "%";
+  return Math.round(v).toLocaleString("en-US");
+}
+function ind(cur, prev, t) {
+  if (cur == null || prev == null) return "";
+  var f = t === "pct" ? 10 : 1, a = Math.round(cur * f), b = Math.round(prev * f);
+  if (a > b) return '<span class="ind up">&#9650;</span>';
+  if (a < b) return '<span class="ind down">&#9660;</span>';
+  return '<span class="ind flat">&#8596;</span>';
+}
+function tableIdx() { return [N - 1, N - 2, N - 13]; }
+function headHTML() { return "<tr><th></th>" + tableIdx().map(function (i) { return "<th>" + periodLabel(DATA.periods[i]) + "</th>"; }).join("") + "</tr>"; }
+function bodyHTML(d) {
+  var ix = tableIdx();
+  return METRICS.map(function (m) {
+    var v = ix.map(function (i) { return d[m[0]][i]; }), t = m[2];
+    return "<tr><td>" + metricLabel(m) + '</td><td class="cur">' + fmt(v[0], t) + ind(v[0], v[1], t) + "</td><td>" + fmt(v[1], t) + "</td><td>" + fmt(v[2], t) + "</td></tr>";
+  }).join("");
+}
+
+/* ---------- 3-year line chart ---------- */
+function chartTitle(key) { return metricLabel(metricObj(key || sel.metric)) + " — last 3 years"; }
+function niceStep(range, ticks) {
+  var raw = range / ticks, mag = Math.pow(10, Math.floor(Math.log(raw) / Math.LN10)), f = raw / mag;
+  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * mag;
+}
+function axisLabel(v, t) {
+  if (t === "usd") { if (Math.abs(v) >= 1e6) return "$" + +(v / 1e6).toFixed(2) + "M"; if (Math.abs(v) >= 1e4) return "$" + Math.round(v / 1e3) + "K"; return "$" + Math.round(v).toLocaleString("en-US"); }
+  if (t === "pct") return +v.toFixed(1) + "%";
+  return Math.round(v).toLocaleString("en-US");
+}
+/* returns {html, g} where g holds scale info for the tooltip */
+function chartSVG(W, H, d, interactive, key) {
+  var m = metricObj(key || sel.metric), vals = d[m[0]], t = m[2];
+  var pts = vals.filter(function (v) { return v != null; });
+  var small = W < 520, L = small ? 46 : 64, R = small ? 30 : 44, T = 12, B = 46;
+  var fs = small ? 10 : 12;
+  if (!pts.length) return { html: '<div class="nodata">No data for this selection.</div>', g: null };
+  var lo = Math.min.apply(null, pts), hi = Math.max.apply(null, pts);
+  if (t === "int" || m[0] === "closed" || m[0] === "newl") lo = Math.min(0, lo);
+  if (hi === lo) { hi = hi + 1; lo = lo - 1 < 0 && lo >= 0 ? 0 : lo - 1; }
+  var step = niceStep(hi - lo, 5);
+  var y0 = Math.floor(lo / step) * step, y1 = Math.ceil(hi / step) * step;
+  function X(i) { return L + (W - L - R) * i / (N - 1); }
+  function Y(v) { return T + (H - T - B) * (1 - (v - y0) / (y1 - y0)); }
+  var s = '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + " " + H + '" font-family="Lexend, Arial, sans-serif" role="img" aria-label="' + chartTitle(key) + '">';
+  s += '<rect width="' + W + '" height="' + H + '" fill="#ffffff"/>';
+  for (var v = y0; v <= y1 + step / 2; v += step) {
+    var y = Y(v).toFixed(1);
+    s += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y + '" y2="' + y + '" stroke="#e3e6ec" stroke-width="1"/>';
+    s += '<text x="' + (L - 8) + '" y="' + (+y + 4) + '" text-anchor="end" font-size="' + fs + '" fill="#555555">' + axisLabel(v, t) + "</text>";
+  }
+  var every = small ? 6 : 3, i;
+  for (i = 0; i < N; i++) {
+    var p = DATA.periods[i].split("-"), x = X(i).toFixed(1);
+    if ((N - 1 - i) % every === 0) {
+      s += '<line x1="' + x + '" x2="' + x + '" y1="' + (H - B) + '" y2="' + (H - B + 4) + '" stroke="#999999"/>';
+      s += '<text x="' + x + '" y="' + (H - B + 17) + '" text-anchor="middle" font-size="' + fs + '" fill="#555555">' + MSHORT[+p[1] - 1] + " " + (small ? "’" + p[0].slice(2) : p[0]) + "</text>";
+      s += '<text x="' + x + '" y="' + (H - B + 32) + '" text-anchor="middle" font-size="' + fs + '" fill="#555555">Q' + Math.ceil(+p[1] / 3) + "</text>";
+    }
+  }
+  /* line, broken at missing values */
+  var path = "", pen = false;
+  for (i = 0; i < N; i++) {
+    if (vals[i] == null) { pen = false; continue; }
+    path += (pen ? "L" : "M") + X(i).toFixed(1) + "," + Y(vals[i]).toFixed(1); pen = true;
+  }
+  var seg = [], cur = [];
+  for (i = 0; i < N; i++) { if (vals[i] == null) { if (cur.length) seg.push(cur); cur = []; } else cur.push(i); }
+  if (cur.length) seg.push(cur);
+  seg.forEach(function (q) {
+    if (q.length < 2) return;
+    var a = "M" + X(q[0]).toFixed(1) + "," + (H - B);
+    q.forEach(function (k) { a += "L" + X(k).toFixed(1) + "," + Y(vals[k]).toFixed(1); });
+    s += '<path d="' + a + "L" + X(q[q.length - 1]).toFixed(1) + "," + (H - B) + 'Z" fill="#1d2b50" fill-opacity="0.07"/>';
+  });
+  s += '<path d="' + path + '" fill="none" stroke="' + LINE + '" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>';
+  for (i = 0; i < N; i++) if (vals[i] != null && (i === N - 1 || !interactive || N <= 40)) {
+    s += '<circle cx="' + X(i).toFixed(1) + '" cy="' + Y(vals[i]).toFixed(1) + '" r="' + (i === N - 1 ? 4 : 2.4) + '" fill="' + (i === N - 1 ? LINE : "#ffffff") + '" stroke="' + LINE + '" stroke-width="1.6"/>';
+  }
+  if (interactive) s += '<line id="hov" x1="0" x2="0" y1="' + T + '" y2="' + (H - B) + '" stroke="#999999" stroke-dasharray="3 3" visibility="hidden"/><circle id="hovdot" r="5.5" fill="' + LINE + '" stroke="#ffffff" stroke-width="2" visibility="hidden"/>';
+  s += "</svg>";
+  return { html: s, g: { W: W, L: L, R: R, X: X, Y: Y, vals: vals, t: t } };
+}
+var CG = null;
+function renderChart() {
+  var d = compute(), box = document.getElementById("chart");
+  var W = Math.max(280, Math.floor(box.clientWidth || 600)), H = W < 520 ? 256 : 316;
+  document.getElementById("ctitle").textContent = chartTitle();
+  document.getElementById("cval").textContent = headVal(sel.metric, d);
+  var c = chartSVG(W, H, d, true);
+  box.innerHTML = c.html + '<div class="tip" id="tip"></div>';
+  CG = c.g;
+  var svg = box.querySelector("svg");
+  if (!svg || !CG) return;
+  svg.addEventListener("pointermove", showTip);
+  svg.addEventListener("pointerdown", showTip);
+  svg.addEventListener("pointerleave", hideTip);
+}
+function showTip(e) {
+  if (!CG) return;
+  var svg = e.currentTarget, r = svg.getBoundingClientRect();
+  var x = (e.clientX - r.left) * (CG.W / r.width);
+  var i = Math.round((x - CG.L) / (CG.W - CG.L - CG.R) * (N - 1));
+  i = Math.max(0, Math.min(N - 1, i));
+  var v = CG.vals[i], tip = document.getElementById("tip");
+  if (v == null) { hideTip(); return; }
+  var px = CG.X(i), py = CG.Y(v), hov = document.getElementById("hov"), dot = document.getElementById("hovdot");
+  hov.setAttribute("x1", px); hov.setAttribute("x2", px); hov.setAttribute("visibility", "visible");
+  dot.setAttribute("cx", px); dot.setAttribute("cy", py); dot.setAttribute("visibility", "visible");
+  tip.innerHTML = "<b>" + periodLabel(DATA.periods[i]) + "</b><br>" + metricLabel(metricObj(sel.metric)) + ": <b>" + fmt(v, CG.t) + "</b>";
+  tip.style.display = "block";
+  var scale = r.width / CG.W, tw = tip.offsetWidth, left = px * scale + 12;
+  if (left + tw > r.width) left = px * scale - tw - 12;
+  tip.style.left = Math.max(0, left) + "px";
+}
+function hideTip() {
+  var tip = document.getElementById("tip"); if (tip) tip.style.display = "none";
+  ["hov", "hovdot"].forEach(function (id) { var e = document.getElementById(id); if (e) e.setAttribute("visibility", "hidden"); });
+}
+var rzT = null;
+window.addEventListener("resize", function () { clearTimeout(rzT); rzT = setTimeout(function () { if (DATA) renderChart(); }, 150); });
+
+
+/* ---------- plain-English summary (used on the PDF) ---------- */
+function scopeText() {
+  if (sel.county >= 0) return DATA.counties[sel.county] + " County" + (sel.area >= 0 ? " (" + DATA.areas[sel.area] + ")" : "");
+  return sel.area >= 0 ? DATA.areas[sel.area] : "the 11-county BSCMLS service area";
+}
+function chg(a, b) {
+  if (a == null || b == null || b === 0) return null;
+  var p = (a - b) / b * 100;
+  if (Math.abs(p) < 0.5) return "essentially flat";
+  return (p > 0 ? "up " : "down ") + Math.abs(Math.round(p)) + "%";
+}
+function vs(a, b, c) {
+  var x = chg(a, b), y = chg(a, c);
+  if (x && y) return x + " from the previous month and " + y + " from a year earlier";
+  if (x) return x + " from the previous month";
+  if (y) return y + " from a year earlier";
+  return "";
+}
+function summaryHTML(d) {
+  var ix = tableIdx(), c = ix[0], pm = ix[1], py = ix[2], mon = periodLabel(DATA.periods[c]);
+  function g(k, i) { return d[k][i]; }
+  var type = ({ ALL_RES: "residential", ALL_LAND: "land", ALL_COM: "commercial" })[sel.type] || typeLabel(sel.type), n = g("closed", c), out = [], v;
+  var s1 = "In " + mon + ", there " + (n === 1 ? "was <b>1</b> closed sale" : "were <b>" + fmt(n, "int") + "</b> closed sales") + " of <b>" + type + "</b> properties in <b>" + scopeText() + "</b>";
+  v = n ? vs(n, g("closed", pm), g("closed", py)) : "";
+  out.push(s1 + (v ? ", " + v : "") + ".");
+  if (g("price", c) != null) {
+    v = vs(g("price", c), g("price", pm), g("price", py));
+    out.push("The median sale price was <b>" + fmt(g("price", c), "usd") + "</b>" + (v ? ", " + v : "") + ".");
+  }
+  if (g("dom", c) != null) {
+    var a = g("dom", pm), b = g("dom", py);
+    out.push("Sold properties spent a median of <b>" + fmt(g("dom", c), "int") + "</b> days on the market" +
+      (a != null || b != null ? " (" + [a != null ? fmt(a, "int") + " the previous month" : null, b != null ? fmt(b, "int") + " a year earlier" : null].filter(Boolean).join(", ") + ")" : "") + ".");
+  }
+  var nl = g("newl", c);
+  v = chg(nl, g("newl", pm));
+  var s5 = "<b>" + fmt(nl, "int") + "</b> new " + (nl === 1 ? "listing was" : "listings were") + " added" + (v ? ", " + v + " from the previous month" : "");
+  if (g("ratio", c) != null) s5 += ", and sold properties received an average of <b>" + fmt(g("ratio", c), "pct") + "</b> of their final list price";
+  out.push(s5 + ".");
+  if (g("per", c) != null) out.push("The median sold price was <b>" + fmt(g("per", c), "usd") + "</b> per " + (PER_ACRE[sel.type] ? "acre" : "square foot") + ".");
+  var ps = d.price.filter(function (x) { return x != null; });
+  if (ps.length > 11) out.push("Over the past three years, the median sale price has ranged from " + fmt(Math.min.apply(null, ps), "usd") + " to " + fmt(Math.max.apply(null, ps), "usd") + ".");
+  var html = "<p>" + out.join(" ") + "</p>";
+  if (n < 10) html += '<p class="note">Note: with fewer than 10 closed sales, these figures can swing widely from month to month.</p>';
+  return html;
+}
+
+/* "October 2026: 211 closed sales" shown at the top right of each chart */
+function headVal(key, d) {
+  var v = d[key][N - 1], m = metricObj(key), mon = periodLabel(DATA.periods[N - 1]);
+  if (v == null) return mon + ": no data";
+  var t = fmt(v, m[2]);
+  var txt = { closed: t + (Math.round(v) === 1 ? " closed sale" : " closed sales"), price: t, dom: t + (Math.round(v) === 1 ? " day on market" : " days on market"),
+    newl: t + (Math.round(v) === 1 ? " new listing" : " new listings"), ratio: t + " of final list price",
+    per: t + (PER_ACRE[sel.type] ? " per acre" : " per sq ft") }[key];
+  return mon + ": " + txt;
+}
+
+function brief(label, d) {
+  var ix = tableIdx(), c = ix[0], n = d.closed[c], pr = d.price[c], v = vs(n, d.closed[ix[1]], d.closed[ix[2]]);
+  var t = "<b>" + label + ":</b> " + fmt(n, "int") + (n === 1 ? " closed sale" : " closed sales") + (v && n ? " (" + v + ")" : "");
+  if (pr != null) t += ", with a median sale price of <b>" + fmt(pr, "usd") + "</b>";
+  return "<p>" + t + ".</p>";
+}
+fetch("rows.json?v=" + Date.now()).then(function (r) { return r.json(); }).then(function (d) {
+  DATA = d; N = d.periods.length;
+  var mon = periodLabel(DATA.periods[N - 1]);
+  document.getElementById("ttl").textContent = mon + " Market Summary";
+  document.getElementById("updated").textContent = "Big Sky Country MLS · Data updated " + prettyDate(DATA.updated);
+  document.getElementById("sample").hidden = !DATA.sample;
+  sel.county = -1; sel.area = -1;
+  sel.type = "ALL_RES"; var res = compute();
+  sel.type = "ALL_LAND"; var land = compute();
+  sel.type = "ALL_COM"; var com = compute();
+  sel.type = "ALL_RES";
+  document.getElementById("out").innerHTML = summaryHTML(res) + brief("Land", land) + brief("Commercial", com);
+}).catch(function () { document.getElementById("out").textContent = "Data unavailable."; });
+</script>
+</body>
+</html>
