@@ -15,8 +15,9 @@
   .updated { color:#6c757d; font-size:.8rem; margin:0 0 12px; }
   .sample { background:#fff3cd; color:#664d03; border:1px solid #ffecb5; text-align:center; font-weight:700; padding:6px; margin:0 0 10px; font-size:.85rem; }
   p { margin:0 0 10px; font-size:.95rem; line-height:1.65; }
+  h1 { line-height:1.25; }
   .note { color:#6c757d; font-size:.8rem; }
-  @media (max-width:700px) { body { padding:6px; } h1 { font-size:1.15rem; } p { font-size:.9rem; } }
+  @media (max-width:700px) { body { padding:6px 8px; } h1 { font-size:1.05rem; } .updated { margin-bottom:6px; font-size:.72rem; } p { font-size:.82rem; line-height:1.5; margin-bottom:6px; } }
 </style>
 </head>
 <body>
@@ -208,7 +209,7 @@ function hideTip() {
   ["hov", "hovdot"].forEach(function (id) { var e = document.getElementById(id); if (e) e.setAttribute("visibility", "hidden"); });
 }
 var rzT = null;
-window.addEventListener("resize", function () { clearTimeout(rzT); rzT = setTimeout(function () { if (DATA) renderChart(); }, 150); });
+window.addEventListener("resize", function () { clearTimeout(rzT); rzT = setTimeout(function () { if (DATA && document.getElementById("chart")) renderChart(); }, 150); });
 
 
 /* ---------- plain-English summary (used on the PDF) ---------- */
@@ -229,7 +230,7 @@ function vs(a, b, c) {
   if (y) return y + " from a year earlier";
   return "";
 }
-function summaryHTML(d) {
+function summaryHTML(d, compact) {
   var ix = tableIdx(), c = ix[0], pm = ix[1], py = ix[2], mon = periodLabel(DATA.periods[c]);
   function g(k, i) { return d[k][i]; }
   var type = ({ ALL_RES: "residential", ALL_LAND: "land", ALL_COM: "commercial" })[sel.type] || typeLabel(sel.type), n = g("closed", c), out = [], v;
@@ -243,16 +244,16 @@ function summaryHTML(d) {
   if (g("dom", c) != null) {
     var a = g("dom", pm), b = g("dom", py);
     out.push("Sold properties spent a median of <b>" + fmt(g("dom", c), "int") + "</b> days on the market" +
-      (a != null || b != null ? " (" + [a != null ? fmt(a, "int") + " the previous month" : null, b != null ? fmt(b, "int") + " a year earlier" : null].filter(Boolean).join(", ") + ")" : "") + ".");
+      (!compact && (a != null || b != null) ? " (" + [a != null ? fmt(a, "int") + " the previous month" : null, b != null ? fmt(b, "int") + " a year earlier" : null].filter(Boolean).join(", ") + ")" : "") + ".");
   }
   var nl = g("newl", c);
   v = chg(nl, g("newl", pm));
   var s5 = "<b>" + fmt(nl, "int") + "</b> new " + (nl === 1 ? "listing was" : "listings were") + " added" + (v ? ", " + v + " from the previous month" : "");
   if (g("ratio", c) != null) s5 += ", and sold properties received an average of <b>" + fmt(g("ratio", c), "pct") + "</b> of their final list price";
   out.push(s5 + ".");
-  if (g("per", c) != null) out.push("The median sold price was <b>" + fmt(g("per", c), "usd") + "</b> per " + (PER_ACRE[sel.type] ? "acre" : "square foot") + ".");
+  if (!compact && g("per", c) != null) out.push("The median sold price was <b>" + fmt(g("per", c), "usd") + "</b> per " + (PER_ACRE[sel.type] ? "acre" : "square foot") + ".");
   var ps = d.price.filter(function (x) { return x != null; });
-  if (ps.length > 11) out.push("Over the past three years, the median sale price has ranged from " + fmt(Math.min.apply(null, ps), "usd") + " to " + fmt(Math.max.apply(null, ps), "usd") + ".");
+  if (!compact && ps.length > 11) out.push("Over the past three years, the median sale price has ranged from " + fmt(Math.min.apply(null, ps), "usd") + " to " + fmt(Math.max.apply(null, ps), "usd") + ".");
   var html = "<p>" + out.join(" ") + "</p>";
   if (n < 10) html += '<p class="note">Note: with fewer than 10 closed sales, these figures can swing widely from month to month.</p>';
   return html;
@@ -286,7 +287,11 @@ fetch("rows.json?v=" + Date.now()).then(function (r) { return r.json(); }).then(
   sel.type = "ALL_LAND"; var land = compute();
   sel.type = "ALL_COM"; var com = compute();
   sel.type = "ALL_RES";
-  document.getElementById("out").innerHTML = summaryHTML(res) + brief("Land", land) + brief("Commercial", com);
+  var draw = function () {
+    var small = window.innerWidth <= 700;
+    document.getElementById("out").innerHTML = summaryHTML(res, small) + brief("Land", land) + brief("Commercial", com);
+  };
+  draw(); window.addEventListener("resize", draw);
 }).catch(function () { document.getElementById("out").textContent = "Data unavailable."; });
 </script>
 </body>
