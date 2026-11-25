@@ -36,6 +36,24 @@
   .legend { background: var(--band); text-align: center; padding: 12px; font-size: .92rem; border-top: 1px solid var(--border); }
   .legend span { margin: 0 10px; white-space: nowrap; }
   .src { text-align: center; color: var(--muted); font-size: .75rem; margin-top: 8px; }
+  /* phones / narrow frames: fit all columns without sideways scrolling (rules scoped to .wrap so the PDF sheet is unaffected) */
+  @media (max-width: 700px) {
+    body { padding: 6px; }
+    h1 { font-size: 1.25rem; }
+    .updated { font-size: .78rem; margin-bottom: 8px; }
+    .tab { padding: 7px 9px; font-size: .85rem; }
+    .pdfbtn { padding: 7px 14px; font-size: .85rem; }
+    .wrap table { min-width: 0; font-size: .8rem; }
+    .wrap col:nth-child(1) { width: 28% !important; }
+    .wrap col:nth-child(n+2) { width: 24% !important; }
+    .wrap th, .wrap td { padding: 9px 5px; }
+    .wrap th { white-space: normal; }
+    .wrap td.cur { white-space: normal; }
+    .wrap .ind { float: none; margin-left: 3px; font-size: .65rem; }
+    .legend { font-size: .78rem; padding: 8px; }
+    .legend span { margin: 0 5px; }
+    .src { font-size: .68rem; }
+  }
   /* off-screen sheet used only to make the PDF */
   #sheet { position: absolute; left: -10000px; top: 0; width: 1000px; background: #fff; padding: 20px 24px; }
   #sheet h2 { font-size: 1.15rem; margin: 18px 0 6px; font-weight: 600; }
